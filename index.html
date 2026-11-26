@@ -10152,7 +10152,7 @@ csForceHorizon();
       const hn = (filas[r] || []).map(v => norm(String(v ?? '')));
       const hasRow = hn.some(h => h === 'ROW NAME' || h === 'LINEA' || h === 'LINE');
       const hasWeek = hn.some(h => h === 'SEMANA' || h === 'WEEK' || h.includes('SEMANA ISO') || h.includes('ISO WEEK'));
-      const hasQty = hn.some(h => h === 'PLANNED QTY' || h.includes('PLANNED QTY') || h === 'PLAN QTY');
+      const hasQty = hn.some(h => h === 'TOTAL PLAN' || h === 'PLANNED QTY' || h.includes('PLANNED QTY') || h === 'PLAN QTY');
       if (hasRow && hasWeek && hasQty) return r;
     }
     return -1;
@@ -10204,8 +10204,10 @@ csForceHorizon();
     const iTotalOrden = col(['TOTAL ORDEN','TOTAL ORDER','ORDER QTY']);
     const iCapas = col(['CAPAS SINTETICO','CAPAS','LAYERS']);
     const iQty = col(['PLANNED QTY','PLAN QTY']);
+    const iPlan = hn.indexOf('TOTAL PLAN');
+    const horizonte = csForceHorizon();
     const iSemana = col(['SEMANA','WEEK','SEMANA ISO','ISO WEEK']);
-    if (iLinea < 0 || iEstilo < 0 || iQty < 0 || iSemana < 0) return null;
+    if (iLinea < 0 || iEstilo < 0 || (iQty < 0 && iPlan < 0) || iSemana < 0) return null;
 
     const regs = [];
     for (let r=iHdr+1; r<filas.length; r++) {
@@ -10218,13 +10220,13 @@ csForceHorizon();
       const week = csSemanaNumero(fila[iSemana]);
       if (!(week >= 1 && week <= 53)) continue;
       const exD = iExDate >= 0 ? csFechaDesdeCelda(fila[iExDate]) : null;
-      const year = exD ? mod8ISOWeekYearFinal(exD).year : mod8ISOWeekYearFinal(new Date()).year;
-      const weekKey = `${year}-W${String(week).padStart(2,'0')}`;
-      let unidades = celdaANumero(fila[iQty]);
+      const weekKey = horizonte.find(key => Number(key.slice(-2)) === week);
+      if (!weekKey) continue;
+      let unidades = celdaANumero(fila[iPlan >= 0 ? iPlan : iQty]);
       const totalOrden = iTotalOrden >= 0 ? celdaANumero(fila[iTotalOrden]) : 0;
       const capas = iCapas >= 0 ? celdaANumero(fila[iCapas]) : 0;
       // Algunos Excel traen Planned qty como formula sin cache. Se reconstruye solo si hace falta.
-      if (!(unidades > 0) && totalOrden > 0 && capas > 0) unidades = totalOrden * capas;
+      if (!(unidades > 0) && iPlan < 0 && totalOrden > 0 && capas > 0) unidades = totalOrden * capas;
       if (!(unidades > 0)) continue;
       const exDate = exD ? `${String(exD.getDate()).padStart(2,'0')}/${String(exD.getMonth()+1).padStart(2,'0')}/${exD.getFullYear()}` : String(iExDate >= 0 ? (fila[iExDate] ?? '') : '').trim();
       regs.push({
@@ -10235,7 +10237,7 @@ csForceHorizon();
         estiloNorm: limpiarEstilo(estiloRaw),
         cliente: String(iCliente >= 0 ? (fila[iCliente] ?? '') : '').trim(),
         exDate,
-        cantOrden: totalOrden || unidades,
+        cantOrden: totalOrden || (iQty >= 0 ? celdaANumero(fila[iQty]) : unidades),
         totalPlanificado: unidades,
         unidades
       });
@@ -10261,15 +10263,7 @@ csForceHorizon();
     let regs = csProcesarFormatoSemanal(workbook);
     if (regs === null) return _csProgramaAnterior(workbook);
 
-    const target = csForceHorizon();
-    const source = [...new Set(regs.map(r => String(r.fecha || '')).filter(Boolean))].sort();
-    const same = source.length === target.length && source.every((k,i)=>k===target[i]);
-    const map = new Map();
-    if (!same) source.slice(0,8).forEach((k,i)=>map.set(k,target[i]));
-    const out = regs.map(r => ({...r, fecha: same ? String(r.fecha||'') : (map.get(String(r.fecha||'')) || String(r.fecha||''))}))
-      .filter(r => target.includes(String(r.fecha||'')));
-    console.log(`CORTE SINTETICO formato semanal: ${out.length} registros | fuente ${source.join(', ')} | horizonte ${target.join(', ')}`);
-    return out;
+    return regs.sort((a,b) => a.fecha.localeCompare(b.fecha));
   };
 
   // Refresca visuales con la base corregida.
